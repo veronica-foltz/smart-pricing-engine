@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Smart Pricing Engine</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0c0f;          /* dark default; toggled with data-theme */
+      --card: #111318;
+      --muted: #9aa4af;
+      --text: #e8edf2;
+      --accent: #6aa5ff;
+      --good: #1db954;
+      --bad: #ff6b6b;
+      --chip: #1b1f27;
+      --border: #1d2230;
+      --tableStripe: #0f1218;
+    }
+    [data-theme="light"]{
+      --bg:#f5f7fb; --card:#ffffff; --muted:#657487; --text:#0d1220; --accent:#1d4ed8;
+      --good:#16a34a; --bad:#dc2626; --chip:#eef2ff; --border:#e5e7eb; --tableStripe:#f8fafc;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; background:var(--bg); color:var(--text);
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      line-height:1.5; padding:24px;
+    }
+    .container{max-width:1100px;margin:0 auto}
+    .header{
+      display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+      margin-bottom:16px;
+    }
+    h1{font-size:28px; margin:0; letter-spacing:.2px}
+    .controls{display:flex; gap:8px; flex-wrap:wrap}
+    button,.btn{
+      background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 14px;
+      font-weight:600; cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.12);
+      transition:transform .05s ease, filter .2s ease;
+    }
+    button.secondary{background:transparent; color:var(--text); border:1px solid var(--border)}
+    button:hover{filter:brightness(1.05)}
+    button:active{transform:translateY(1px)}
+    .toggle{background:transparent;border:1px solid var(--border);color:var(--text)}
+    .card{
+      background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px;
+      box-shadow:0 10px 30px rgba(0,0,0,.18); margin-bottom:16px;
+    }
+    .kpis{display:grid; grid-template-columns:repeat(3,1fr); gap:12px}
+    .kpi h3{margin:0; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em}
+    .kpi .value{font-size:22px; font-weight:700; margin-top:6px}
+    .kpi .sub{font-size:12px; color:var(--muted)}
+    .filters{display:flex; gap:10px; flex-wrap:wrap; margin-top:8px}
+    input[type="text"], select{
+      background:transparent; color:var(--text); border:1px solid var(--border); border-radius:10px;
+      padding:10px 12px; min-width:220px; outline:none;
+    }
+    table{width:100%; border-collapse:separate; border-spacing:0; border:1px solid var(--border); border-radius:12px; overflow:hidden}
+    thead th{
+      background:var(--card); position:sticky; top:0; z-index:1; font-size:12px; color:var(--muted);
+      text-transform:uppercase; letter-spacing:.06em; padding:10px 12px; border-bottom:1px solid var(--border); cursor:pointer;
+    }
+    tbody td{padding:12px; border-bottom:1px solid var(--border)}
+    tbody tr:nth-child(odd){background:var(--tableStripe)}
+    .money{white-space:nowrap}
+    .delta{font-weight:700}
+    .delta.good{color:var(--good)}
+    .delta.bad{color:var(--bad)}
+    .chip{
+      display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px;
+      background:var(--chip); font-size:12px; border:1px solid var(--border)
+    }
+    .legend{display:flex; gap:10px; align-items:center; color:var(--muted); font-size:12px}
+    .chart-wrap{display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap}
+    #chart{background:var(--card); border:1px solid var(--border); border-radius:12px}
+    #slider{width:320px}
+    .right{margin-left:auto}
+    .muted{color:var(--muted)}
+    .pill{border:1px solid var(--border); border-radius:999px; padding:6px 10px}
+  </style>
+</head>
+<body data-theme="dark">
+  <div class="container">
+    <div class="header">
+      <h1>Smart Pricing Engine</h1>
+      <div class="controls">
+        <button onclick="runPricing()">Run Pricing</button>
+        <button class="secondary" onclick="downloadCSV()">Download CSV</button>
+        <button class="toggle" onclick="toggleTheme()" title="Toggle light/dark">🌙</button>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div class="card kpis">
+      <div class="kpi">
+        <h3>Expected Profit Uplift</h3>
+        <div class="value" id="kpiUplift">$0.00</div>
+        <div class="sub muted">vs current prices</div>
+      </div>
+      <div class="kpi">
+        <h3>Price Changes</h3>
+        <div class="value"><span id="kpiUp">0 ↑</span> · <span id="kpiDown">0 ↓</span></div>
+        <div class="sub muted">count of increases / decreases</div>
+      </div>
+      <div class="kpi">
+        <h3>Average Margin</h3>
+        <div class="value" id="kpiMargin">—</div>
+        <div class="sub muted">weighted by expected units (est.)</div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card">
+      <div class="filters">
+        <input id="search" type="text" placeholder="Search products…" oninput="renderTable()" />
+        <select id="category" onchange="renderTable()">
+          <option value="">All categories</option>
+        </select>
+        <span class="right legend">
+          <span class="chip">Low inventory</span>
+          <span class="chip">OK</span>
+          <span class="chip">High inventory</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="card">
+      <table id="table">
+        <thead>
+          <tr>
+            <th onclick="sortBy('name')">Product</th>
+            <th onclick="sortBy('product_id')">ID</th>
+            <th onclick="sortBy('current_price')">Current Price</th>
+            <th onclick="sortBy('recommended_price')">Recommended</th>
+            <th onclick="sortBy('expected_profit_delta')">Delta</th>
+            <th>Inventory</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Chart -->
+    <div class="card">
+      <div class="chart-wrap">
+        <div>
+          <div class="muted" style="margin-bottom:6px;">Profit vs Price</div>
+          <svg id="chart" width="700" height="340"></svg>
+          <div style="display:flex; align-items:center; gap:12px; margin-top:10px;">
+            <input id="slider" type="range" min="0" max="100" value="0" oninput="moveMarker(this.value)" />
+            <span id="sliderLabel" class="pill">Pick a product to view curve</span>
+          </div>
+        </div>
+        <div style="min-width:260px">
+          <div class="muted" style="margin-bottom:6px;">Select product</div>
+          <select id="productSelect" style="min-width:260px; padding:10px" onchange="showCurve()"></select>
+          <div style="margin-top:14px" class="muted">Tips:</div>
+          <ul class="muted" style="margin-top:6px">
+            <li>Green line = recommended price</li>
+            <li>Gray line = current price</li>
+            <li>Red line = slider position</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ------------- state -------------
+    let fullData = null;       // {recommendations:[...]}
+    let filtered = [];         // rendered rows after search/filter
+    let currentSort = { key: 'expected_profit_delta', dir: 'desc' };
+    let currentCurve = null;
+
+    // ------------- helpers -------------
+    const money = v => isFinite(v) ? `$${Number(v).toFixed(2)}` : '—';
+    const pct   = v => isFinite(v) ? `${(Number(v)*100).toFixed(1)}%` : '—';
+    function toggleTheme(){
+      const el = document.body;
+      el.setAttribute('data-theme', el.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+    }
+
+    // ------------- fetch + compute KPIs -------------
+    async function runPricing(){
+      const btns = document.querySelectorAll('button'); btns.forEach(b => b.disabled = true);
+      try{
+        const res = await fetch('http://localhost:8000/recommend', {method:'POST'});
+        const data = await res.json();
+        if(!data.recommendations){ alert('Error: ' + JSON.stringify(data)); return; }
+        // ensure name/category exist
+        data.recommendations.forEach(r=>{
+          if(!('name' in r)) r.name = '(No name)';
+          if(!('category' in r)) r.category = '';
+        });
+        fullData = data;
+        populateCategoryFilter();
+        computeKPIs();
+        renderTable();
+        populateProductSelect();
+      }catch(e){
+        alert('Failed to fetch recommendations.\n' + e);
+      }finally{
+        btns.forEach(b => b.disabled = false);
+      }
+    }
+
+    function computeKPIs(){
+      if(!fullData) return;
+      const rows = fullData.recommendations;
+      const uplift = rows.reduce((acc,r)=> acc + (Number(r.expected_profit_delta)||0), 0);
+      const up = rows.filter(r => r.recommended_price > r.current_price).length;
+      const down = rows.filter(r => r.recommended_price < r.current_price).length;
+      // naive margin approximation (recommended)
+      const avgMargin = rows.reduce((acc,r)=> acc + ((r.recommended_price - r.unit_cost) / Math.max(r.recommended_price,1e-6)), 0) / Math.max(rows.length,1);
+      document.getElementById('kpiUplift').textContent = money(uplift);
+      document.getElementById('kpiUp').textContent = `${up} ↑`;
+      document.getElementById('kpiDown').textContent = `${down} ↓`;
+      document.getElementById('kpiMargin').textContent = pct(avgMargin);
+    }
+
+    // ------------- filters -------------
+    function populateCategoryFilter(){
+      const sel = document.getElementById('category');
+      const cats = Array.from(new Set(fullData.recommendations.map(r => r.category).filter(Boolean))).sort();
+      sel.innerHTML = '<option value="">All categories</option>' + cats.map(c=>`<option>${c}</option>`).join('');
+    }
+
+    function renderTable(){
+      if(!fullData) return;
+      const q = document.getElementById('search').value.toLowerCase();
+      const cat = document.getElementById('category').value;
+      filtered = fullData.recommendations.filter(r=>{
+        const matchesQ = !q || (r.name||'').toLowerCase().includes(q) || (r.product_id||'').toLowerCase().includes(q);
+        const matchesC = !cat || r.category === cat;
+        return matchesQ && matchesC;
+      });
+      sortData();
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = filtered.map(r=>{
+        const deltaClass = Number(r.expected_profit_delta) >= 0 ? 'delta good' : 'delta bad';
+        const inv = (Number(r.inventory_on_hand)||0), rp = (Number(r.reorder_point)||0);
+        let invBadge = '<span class="chip">OK</span>';
+        if(inv <= rp) invBadge = '<span class="chip" style="border-color:var(--bad);color:var(--bad)">Low</span>';
+        else if(inv > 2*rp) invBadge = '<span class="chip" style="border-color:var(--good);color:var(--good)">High</span>';
+        return `
+          <tr>
+            <td>${escapeHtml(r.name||'(No name)')}</td>
+            <td>${r.product_id}</td>
+            <td class="money">${money(r.current_price)}</td>
+            <td class="money"><b>${money(r.recommended_price)}</b></td>
+            <td class="${deltaClass}">${Number(r.expected_profit_delta).toFixed(2)}</td>
+            <td>${invBadge}</td>
+            <td class="muted">${escapeHtml(r.notes||'')}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function sortBy(key){
+      if(currentSort.key === key){ currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc'; }
+      else { currentSort = {key, dir:'asc'}; }
+      renderTable();
+    }
+    function sortData(){
+      const dir = currentSort.dir === 'asc' ? 1 : -1;
+      filtered.sort((a,b)=>{
+        const va = a[currentSort.key], vb = b[currentSort.key];
+        if(typeof va === 'string' && typeof vb === 'string') return va.localeCompare(vb)*dir;
+        return ((Number(va)||0) - (Number(vb)||0)) * dir;
+      });
+    }
+    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    // ------------- CSV download -------------
+    function downloadCSV(){
+      if(!fullData || !fullData.recommendations){ alert("Run Pricing first."); return; }
+      const rows = fullData.recommendations;
+      // make columns stable & friendly
+      const header = ["product_id","name","category","current_price","recommended_price","unit_cost","inventory_on_hand","reorder_point","expected_profit_delta","notes"];
+      const csv = [
+        header.join(","),
+        ...rows.map(r => header.map(h => `"${(r[h] ?? '').toString().replace(/"/g,'""')}"`).join(",")),
+      ].join("\n");
+      const blob = new Blob([csv], { type:"text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "price_recommendations.csv"; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // ------------- product select + curve -------------
+    function populateProductSelect(){
+      const sel = document.getElementById('productSelect');
+      sel.innerHTML = '';
+      filtered.forEach(r=>{
+        const opt = document.createElement('option');
+        opt.value = r.product_id;
+        opt.textContent = r.name ? `${r.name} — ${r.product_id}` : r.product_id;
+        sel.appendChild(opt);
+      });
+      if(sel.options.length){ sel.value = sel.options[0].value; showCurve(); }
+    }
+
+    async function showCurve(){
+      const pid = document.getElementById('productSelect').value;
+      if(!pid) return;
+      const res = await fetch('http://localhost:8000/curve?product_id='+encodeURIComponent(pid));
+      const curve = await res.json();
+      if(!curve.points){ document.getElementById('sliderLabel').textContent = 'No curve data'; return; }
+      currentCurve = curve;
+      drawChart(curve);
+      setupSlider(curve);
+    }
+
+    function drawChart(curve){
+      const svg = document.getElementById('chart');
+      while(svg.firstChild) svg.removeChild(svg.firstChild);
+      const W = svg.viewBox.baseVal.width || svg.getAttribute('width'); // numeric
+      const H = svg.viewBox.baseVal.height || svg.getAttribute('height');
+      const pad = 38, ox=pad, oy=pad, iw=W-pad*2, ih=H-pad*2;
+
+      const prices = curve.points.map(p=>p.price);
+      const profits = curve.points.map(p=>p.profit);
+      const minP = Math.min(...prices), maxP = Math.max(...prices);
+      const minY = Math.min(0,...profits), maxY = Math.max(...profits);
+
+      const X = v => ox + ((v-minP)/(maxP-minP))*iw;
+      const Y = v => oy + (1-((v-minY)/(maxY-minY || 1)))*ih;
+
+      // axes
+      const mkLine=(x1,y1,x2,y2,st="#3a4154",w=1,ds=null)=>{
+        const l=document.createElementNS("http://www.w3.org/2000/svg","line");
+        l.setAttribute("x1",x1); l.setAttribute("y1",y1); l.setAttribute("x2",x2); l.setAttribute("y2",y2);
+        l.setAttribute("stroke",st); l.setAttribute("stroke-width",w); if(ds) l.setAttribute("stroke-dasharray",ds);
+        svg.appendChild(l);
+      };
+      mkLine(ox, oy+ih, ox+iw, oy+ih); // x
+      mkLine(ox, oy, ox, oy+ih);       // y
+
+      // profit path
+      let d="";
+      curve.points.forEach((pt,i)=>{ d += (i? " L ":"M ") + X(pt.price) + " " + Y(pt.profit); });
+      const path=document.createElementNS("http://www.w3.org/2000/svg","path");
+      path.setAttribute("d", d); path.setAttribute("fill","none");
+      path.setAttribute("stroke", getComputedStyle(document.body).getPropertyValue('--accent').trim() || "#6aa5ff");
+      path.setAttribute("stroke-width","2.5"); svg.appendChild(path);
+
+      // recommended & current
+      mkLine(X(curve.current_price), oy, X(curve.current_price), oy+ih, "#8b93a6", 1, "5,4");
+      mkLine(X(curve.recommended_price), oy, X(curve.recommended_price), oy+ih, "#22c55e", 1.5, "5,4");
+
+      // slider marker
+      const m=document.createElementNS("http://www.w3.org/2000/svg","line");
+      m.setAttribute("id","sliderMarker"); m.setAttribute("y1",oy); m.setAttribute("y2",oy+ih);
+      m.setAttribute("stroke","#ef4444"); m.setAttribute("stroke-width","2"); svg.appendChild(m);
+      moveMarkerTo(curve.recommended_price, curve);
+      document.getElementById('sliderLabel').textContent = `${curve.name || curve.product_id}`;
+    }
+
+    function setupSlider(curve){
+      const prices = curve.points.map(p=>p.price);
+      const minP = Math.min(...prices), maxP = Math.max(...prices);
+      const slider = document.getElementById('slider');
+      slider.min = minP; slider.max = maxP;
+      slider.step = ((maxP - minP)/100).toFixed(2);
+      slider.value = curve.recommended_price;
+      updateSliderLabel(curve.recommended_price, curve);
+    }
+
+    function moveMarker(val){
+      if(!currentCurve) return;
+      const price = parseFloat(val);
+      moveMarkerTo(price, currentCurve);
+      updateSliderLabel(price, currentCurve);
+    }
+    function moveMarkerTo(price, curve){
+      const svg=document.getElementById('chart');
+      const W=svg.getAttribute('width'), H=svg.getAttribute('height');
+      const pad=38, ox=pad, oy=pad, iw=W-pad*2, ih=H-pad*2;
+      const prices=curve.points.map(p=>p.price), profits=curve.points.map(p=>p.profit);
+      const minP=Math.min(...prices), maxP=Math.max(...prices);
+      const X=v=> ox + ((v-minP)/(maxP-minP))*iw;
+      const marker=document.getElementById('sliderMarker');
+      marker.setAttribute('x1',X(price)); marker.setAttribute('x2',X(price));
+    }
+    function updateSliderLabel(price, curve){
+      let nearest = curve.points[0];
+      curve.points.forEach(p => { if(Math.abs(p.price - price) < Math.abs(nearest.price - price)) nearest = p; });
+      document.getElementById('sliderLabel').textContent =
+        `${curve.name || curve.product_id} — Price $${Number(price).toFixed(2)}  •  Profit ≈ ${money(nearest.profit)}`;
+    }
+
+    // ------------- init -------------
+    // Auto-run if you want:
+    // runPricing();
+  </script>
+</body>
+</html>
