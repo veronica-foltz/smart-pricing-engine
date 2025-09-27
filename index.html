@@ -7,32 +7,19 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #0b0c0f;          /* dark default; toggled with data-theme */
-      --card: #111318;
-      --muted: #9aa4af;
-      --text: #e8edf2;
-      --accent: #6aa5ff;
-      --good: #1db954;
-      --bad: #ff6b6b;
-      --chip: #1b1f27;
-      --border: #1d2230;
-      --tableStripe: #0f1218;
+      --bg:#0b0c0f; --card:#111318; --muted:#9aa4af; --text:#e8edf2; --accent:#6aa5ff;
+      --good:#1db954; --bad:#ff6b6b; --chip:#1b1f27; --border:#1d2230; --tableStripe:#0f1218;
     }
     [data-theme="light"]{
       --bg:#f5f7fb; --card:#ffffff; --muted:#657487; --text:#0d1220; --accent:#1d4ed8;
       --good:#16a34a; --bad:#dc2626; --chip:#eef2ff; --border:#e5e7eb; --tableStripe:#f8fafc;
     }
     *{box-sizing:border-box}
-    body{
-      margin:0; background:var(--bg); color:var(--text);
-      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      line-height:1.5; padding:24px;
-    }
+    body{ margin:0; background:var(--bg); color:var(--text);
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      line-height:1.5; padding:24px;}
     .container{max-width:1100px;margin:0 auto}
-    .header{
-      display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
-      margin-bottom:16px;
-    }
+    .header{ display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:16px;}
     h1{font-size:28px; margin:0; letter-spacing:.2px}
     .controls{display:flex; gap:8px; flex-wrap:wrap}
     button,.btn{
@@ -41,13 +28,10 @@
       transition:transform .05s ease, filter .2s ease;
     }
     button.secondary{background:transparent; color:var(--text); border:1px solid var(--border)}
-    button:hover{filter:brightness(1.05)}
-    button:active{transform:translateY(1px)}
+    button:hover{filter:brightness(1.05)} button:active{transform:translateY(1px)}
     .toggle{background:transparent;border:1px solid var(--border);color:var(--text)}
-    .card{
-      background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px;
-      box-shadow:0 10px 30px rgba(0,0,0,.18); margin-bottom:16px;
-    }
+    .card{ background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px;
+      box-shadow:0 10px 30px rgba(0,0,0,.18); margin-bottom:16px;}
     .kpis{display:grid; grid-template-columns:repeat(3,1fr); gap:12px}
     .kpi h3{margin:0; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em}
     .kpi .value{font-size:22px; font-weight:700; margin-top:6px}
@@ -80,12 +64,9 @@
     tbody tr:nth-child(odd){background:var(--tableStripe)}
     .money{white-space:nowrap}
     .delta{font-weight:700}
-    .delta.good{color:var(--good)}
-    .delta.bad{color:var(--bad)}
-    .chip{
-      display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px;
-      background:var(--chip); font-size:12px; border:1px solid var(--border)
-    }
+    .delta.good{color:var(--good)} .delta.bad{color:var(--bad)}
+    .chip{ display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px;
+      background:var(--chip); font-size:12px; border:1px solid var(--border)}
     .legend{display:flex; gap:10px; align-items:center; color:var(--muted); font-size:12px}
     .chart-wrap{display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap}
     #chart{background:var(--card); border:1px solid var(--border); border-radius:12px}
@@ -93,6 +74,7 @@
     .right{margin-left:auto}
     .muted{color:var(--muted)}
     .pill{border:1px solid var(--border); border-radius:999px; padding:6px 10px}
+    .hidden{display:none}
   </style>
 </head>
 <body data-theme="dark">
@@ -100,7 +82,9 @@
     <div class="header">
       <h1>Smart Pricing Engine</h1>
       <div class="controls">
-        <button onclick="runPricing()">Run Pricing</button>
+        <button onclick="loadFromRepo()">Load CSV from Repo</button>
+        <label class="btn secondary" for="fileInput">Upload CSV</label>
+        <input id="fileInput" type="file" accept=".csv" class="hidden" />
         <button class="secondary" onclick="downloadCSV()">Download CSV</button>
         <button class="toggle" onclick="toggleTheme()" title="Toggle light/dark">🌙</button>
       </div>
@@ -184,68 +168,130 @@
   </div>
 
   <script>
-    // ===== API base =====
-    const API_URL = "http://127.0.0.1:8000";
-
-    // ------------- state -------------
-    let fullData = null;       // {recommendations:[...]}
-    let filtered = [];         // rendered rows after search/filter
+    // ---------- STATE ----------
+    let fullData = null;   // {recommendations:[...]}, rows are objects keyed by CSV header
+    let filtered = [];
     let currentSort = { key: 'expected_profit_delta', dir: 'desc' };
     let currentCurve = null;
 
-    // ------------- helpers -------------
-    const money = v => isFinite(v) ? `$${Number(v).toFixed(2)}` : '—';
-    const pct   = v => isFinite(v) ? `${(Number(v)*100).toFixed(1)}%` : '—';
+    // ---------- THEME ----------
     function toggleTheme(){
       const el = document.body;
       el.setAttribute('data-theme', el.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
     }
 
-    // ------------- fetch + compute KPIs -------------
-    async function runPricing(){
+    // ---------- HELPERS ----------
+    const money = v => (isFinite(v) ? `$${Number(v).toFixed(2)}` : '—');
+    const pct   = v => (isFinite(v) ? `${(Number(v)*100).toFixed(1)}%` : '—');
+    const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const toNum = v => (v === null || v === '' || v === undefined) ? NaN : Number(v);
+
+    // ---------- LOADERS (CSV from repo or upload) ----------
+    async function loadFromRepo(){
       const btns = document.querySelectorAll('button'); btns.forEach(b => b.disabled = true);
-      try{
-        const res = await fetch(`${API_URL}/recommend`, { method: "POST" });
-        const data = await res.json();
-        if(!data.recommendations){ alert('Error: ' + JSON.stringify(data)); return; }
-
-        // ensure name/category exist
-        data.recommendations.forEach(r=>{
-          if(!('name' in r)) r.name = '(No name)';
-          if(!('category' in r)) r.category = '';
-        });
-
-        fullData = data;
-        populateCategoryFilter();
-        computeKPIs();
-        renderTable();
-        populateProductSelect();
-      }catch(e){
-        console.error(e);
-        alert('Failed to fetch recommendations.\n' + (e?.message || e));
-      }finally{
-        btns.forEach(b => b.disabled = false);
+      // Try common repo paths (relative URLs work on GitHub Pages even with /smart-pricing-engine/ base)
+      const candidates = ["data/price_recommendations.csv", "price_recommendations.csv"];
+      let csvText = null;
+      for(const path of candidates){
+        try{
+          const res = await fetch(path, {cache:"no-store"});
+          if(res.ok){ csvText = await res.text(); break; }
+        }catch(_){}
       }
+      if(!csvText){
+        alert("Couldn't find data/price_recommendations.csv in the repo.\n" +
+              "You can upload a CSV with the 'Upload CSV' button.");
+        btns.forEach(b => b.disabled = false);
+        return;
+      }
+      processCSV(csvText);
+      btns.forEach(b => b.disabled = false);
     }
 
+    document.getElementById('fileInput').addEventListener('change', e=>{
+      const file = e.target.files?.[0]; if(!file) return;
+      const reader = new FileReader();
+      reader.onload = () => processCSV(reader.result);
+      reader.readAsText(file);
+    });
+
+    // ---------- CSV PARSE ----------
+    function parseCSV(text){
+      // Simple CSV parser (handles basic quotes)
+      const lines = text.replace(/\r/g,'').split('\n').filter(Boolean);
+      if(!lines.length) return {header:[], rows:[]};
+      const header = splitCSVLine(lines[0]);
+      const rows = [];
+      for(let i=1;i<lines.length;i++){
+        const cols = splitCSVLine(lines[i]);
+        const obj = {};
+        header.forEach((h,idx)=> obj[h] = cols[idx] ?? '');
+        rows.push(obj);
+      }
+      return {header, rows};
+    }
+    function splitCSVLine(line){
+      const out = []; let cur = '', inQ=false;
+      for(let i=0;i<line.length;i++){
+        const ch = line[i], nx = line[i+1];
+        if(ch === '"' && inQ && nx === '"'){ cur += '"'; i++; continue; }
+        if(ch === '"'){ inQ = !inQ; continue; }
+        if(ch === ',' && !inQ){ out.push(cur); cur=''; continue; }
+        cur += ch;
+      }
+      out.push(cur);
+      return out;
+    }
+
+    // ---------- MAIN PIPELINE ----------
+    function processCSV(csvText){
+      const {rows} = parseCSV(csvText);
+      // Normalize types + expected fields
+      rows.forEach(r=>{
+        r.product_id = (r.product_id ?? '').toString();
+        r.name = r.name ?? '(No name)';
+        r.category = r.category ?? '';
+        r.current_price = toNum(r.current_price);
+        r.recommended_price = toNum(r.recommended_price);
+        r.unit_cost = toNum(r.unit_cost);
+        r.inventory_on_hand = toNum(r.inventory_on_hand);
+        r.reorder_point = toNum(r.reorder_point);
+        r.expected_profit_delta = toNum(r.expected_profit_delta);
+        r.notes = r.notes ?? '';
+      });
+
+      fullData = { recommendations: rows };
+      populateCategoryFilter();
+      computeKPIs();
+      renderTable();
+      populateProductSelect();
+    }
+
+    //  KPIs
     function computeKPIs(){
       if(!fullData) return;
       const rows = fullData.recommendations;
       const uplift = rows.reduce((acc,r)=> acc + (Number(r.expected_profit_delta)||0), 0);
       const up = rows.filter(r => r.recommended_price > r.current_price).length;
       const down = rows.filter(r => r.recommended_price < r.current_price).length;
-      const avgMargin = rows.reduce((acc,r)=> acc + ((r.recommended_price - r.unit_cost) / Math.max(r.recommended_price,1e-6)), 0) / Math.max(rows.length,1);
+
+      const margins = rows.map(r=>{
+        const rp = Number(r.recommended_price), uc = Number(r.unit_cost);
+        if(!isFinite(rp) || !isFinite(uc) || rp<=0) return NaN;
+        return (rp - uc)/rp;
+      }).filter(x=>isFinite(x));
+      const avgMargin = margins.length ? (margins.reduce((a,b)=>a+b,0)/margins.length) : NaN;
+
       document.getElementById('kpiUplift').textContent = money(uplift);
       document.getElementById('kpiUp').textContent = `${up} ↑`;
       document.getElementById('kpiDown').textContent = `${down} ↓`;
       document.getElementById('kpiMargin').textContent = pct(avgMargin);
     }
 
-    // ------------- filters -------------
     function populateCategoryFilter(){
       const sel = document.getElementById('category');
-      const cats = Array.from(new Set(fullData.recommendations.map(r => r.category).filter(Boolean))).sort();
-      sel.innerHTML = '<option value="">All categories</option>' + cats.map(c=>`<option>${c}</option>`).join('');
+      const cats = Array.from(new Set((fullData?.recommendations || []).map(r => r.category).filter(Boolean))).sort();
+      sel.innerHTML = '<option value="">All categories</option>' + cats.map(c=>`<option>${escapeHtml(c)}</option>`).join('');
     }
 
     function renderTable(){
@@ -268,10 +314,10 @@
         return `
           <tr>
             <td>${escapeHtml(r.name||'(No name)')}</td>
-            <td>${r.product_id}</td>
+            <td>${escapeHtml(r.product_id)}</td>
             <td class="money">${money(r.current_price)}</td>
             <td class="money"><b>${money(r.recommended_price)}</b></td>
-            <td class="${deltaClass}">${Number(r.expected_profit_delta).toFixed(2)}</td>
+            <td class="${deltaClass}">${isFinite(r.expected_profit_delta)? Number(r.expected_profit_delta).toFixed(2) : '—'}</td>
             <td>${invBadge}</td>
             <td class="muted">${escapeHtml(r.notes||'')}</td>
           </tr>
@@ -292,11 +338,9 @@
         return ((Number(va)||0) - (Number(vb)||0)) * dir;
       });
     }
-    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-    // ------------- CSV download -------------
     function downloadCSV(){
-      if(!fullData || !fullData.recommendations){ alert("Run Pricing first."); return; }
+      if(!fullData || !fullData.recommendations){ alert("Load data first."); return; }
       const rows = fullData.recommendations;
       const header = ["product_id","name","category","current_price","recommended_price","unit_cost","inventory_on_hand","reorder_point","expected_profit_delta","notes"];
       const csv = [
@@ -310,7 +354,6 @@
       URL.revokeObjectURL(url);
     }
 
-    // ------------- product select + curve -------------
     function populateProductSelect(){
       const sel = document.getElementById('productSelect');
       sel.innerHTML = '';
@@ -321,29 +364,57 @@
         sel.appendChild(opt);
       });
       if(sel.options.length){ sel.value = sel.options[0].value; showCurve(); }
+      else { drawEmptyChart(); document.getElementById('sliderLabel').textContent = 'No products loaded'; }
     }
 
-    async function showCurve(){
+    function showCurve(){
       const pid = document.getElementById('productSelect').value;
       if(!pid) return;
-      try{
-        const res = await fetch(`${API_URL}/curve?product_id=${encodeURIComponent(pid)}`);
-        const curve = await res.json();
-        if(!curve.points){ document.getElementById('sliderLabel').textContent = 'No curve data'; return; }
-        currentCurve = curve;
-        drawChart(curve);
-        setupSlider(curve);
-      }catch(e){
-        console.error(e);
-        document.getElementById('sliderLabel').textContent = 'Curve unavailable';
+      const row = filtered.find(r => r.product_id === pid);
+      if(!row){ drawEmptyChart(); document.getElementById('sliderLabel').textContent = 'No curve data'; return; }
+
+      const Pc = Number(row.current_price);
+      const Pr = Number(row.recommended_price);
+      const delta = Number(row.expected_profit_delta);
+      const uc = Number(row.unit_cost);
+      const baseProfit = 0;                
+      const vertexProfit = baseProfit + (isFinite(delta) ? delta : 0);
+
+      const k = (Pr !== Pc) ? (vertexProfit - baseProfit)/((Pr - Pc)*(Pr - Pc)) : 0.01;
+      // profit(p) = vertexProfit - k*(p - Pr)^2
+      const prices = [];
+      const span = Math.max(Pr, Pc) * 0.6 + Math.max(Pr, Pc, 10);
+      const minP = Math.max(0.01, Math.min(Pr, Pc) - span*0.5);
+      const maxP = Math.max(Pr, Pc) + span*0.5;
+      const steps = 60;
+      for(let i=0;i<=steps;i++){
+        const p = minP + (i/steps)*(maxP - minP);
+        const profit = vertexProfit - k*(p - Pr)*(p - Pr);
+        prices.push({price:p, profit:profit});
       }
+
+      currentCurve = {
+        product_id: row.product_id,
+        name: row.name,
+        current_price: Pc,
+        recommended_price: Pr,
+        unit_cost: uc,
+        points: prices
+      };
+      drawChart(currentCurve);
+      setupSlider(currentCurve);
+    }
+
+    function drawEmptyChart(){
+      const svg = document.getElementById('chart');
+      while(svg.firstChild) svg.removeChild(svg.firstChild);
     }
 
     function drawChart(curve){
       const svg = document.getElementById('chart');
       while(svg.firstChild) svg.removeChild(svg.firstChild);
-      const W = svg.viewBox?.baseVal?.width || svg.getAttribute('width');
-      const H = svg.viewBox?.baseVal?.height || svg.getAttribute('height');
+      const W = Number(svg.getAttribute('width'));
+      const H = Number(svg.getAttribute('height'));
       const pad = 38, ox=pad, oy=pad, iw=W-pad*2, ih=H-pad*2;
 
       const prices = curve.points.map(p=>p.price);
@@ -351,7 +422,7 @@
       const minP = Math.min(...prices), maxP = Math.max(...prices);
       const minY = Math.min(0,...profits), maxY = Math.max(...profits);
 
-      const X = v => ox + ((v-minP)/(maxP-minP))*iw;
+      const X = v => ox + ((v-minP)/(maxP-minP || 1))*iw;
       const Y = v => oy + (1-((v-minY)/(maxY-minY || 1)))*ih;
 
       const mkLine=(x1,y1,x2,y2,st="#3a4154",w=1,ds=null)=>{
@@ -360,9 +431,11 @@
         l.setAttribute("stroke",st); l.setAttribute("stroke-width",w); if(ds) l.setAttribute("stroke-dasharray",ds);
         svg.appendChild(l);
       };
+      // axes
       mkLine(ox, oy+ih, ox+iw, oy+ih);
       mkLine(ox, oy, ox, oy+ih);
 
+      // curve path
       let d="";
       curve.points.forEach((pt,i)=>{ d += (i? " L ":"M ") + X(pt.price) + " " + Y(pt.profit); });
       const path=document.createElementNS("http://www.w3.org/2000/svg","path");
@@ -370,9 +443,11 @@
       path.setAttribute("stroke", getComputedStyle(document.body).getPropertyValue('--accent').trim() || "#6aa5ff");
       path.setAttribute("stroke-width","2.5"); svg.appendChild(path);
 
+      // markers: current & recommended
       mkLine(X(curve.current_price), oy, X(curve.current_price), oy+ih, "#8b93a6", 1, "5,4");
       mkLine(X(curve.recommended_price), oy, X(curve.recommended_price), oy+ih, "#22c55e", 1.5, "5,4");
 
+      // slider marker (red)
       const m=document.createElementNS("http://www.w3.org/2000/svg","line");
       m.setAttribute("id","sliderMarker"); m.setAttribute("y1",oy); m.setAttribute("y2",oy+ih);
       m.setAttribute("stroke","#ef4444"); m.setAttribute("stroke-width","2"); svg.appendChild(m);
@@ -398,11 +473,11 @@
     }
     function moveMarkerTo(price, curve){
       const svg=document.getElementById('chart');
-      const W=svg.getAttribute('width'), H=svg.getAttribute('height');
+      const W=Number(svg.getAttribute('width')), H=Number(svg.getAttribute('height'));
       const pad=38, ox=pad, oy=pad, iw=W-pad*2, ih=H-pad*2;
       const prices=curve.points.map(p=>p.price);
       const minP=Math.min(...prices), maxP=Math.max(...prices);
-      const X=v=> ox + ((v-minP)/(maxP-minP))*iw;
+      const X=v=> ox + ((v-minP)/(maxP-minP || 1))*iw;
       const marker=document.getElementById('sliderMarker');
       marker.setAttribute('x1',X(price)); marker.setAttribute('x2',X(price));
     }
@@ -413,7 +488,7 @@
         `${curve.name || curve.product_id} — Price $${Number(price).toFixed(2)}  •  Profit ≈ ${money(nearest.profit)}`;
     }
 
-    // ------------- init -------------
+    loadFromRepo();
   </script>
 </body>
 </html>
