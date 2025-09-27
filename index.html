@@ -157,374 +157,397 @@
   </div>
 
   <script>
-    // ---------- STATE ----------
-    let fullData = null;
-    let filtered = [];
-    let currentSort = { key: 'expected_profit_delta', dir: 'desc' };
-    let currentCurve = null;
+  // ---------- STATE ----------
+  let fullData = null;
+  let filtered = [];
+  let currentSort = { key: 'expected_profit_delta', dir: 'desc' };
+  let currentCurve = null;
 
-    // ---------- THEME ----------
-    function toggleTheme(){
-      const el = document.body;
-      el.setAttribute('data-theme', el.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+  // ---------- THEME ----------
+  function toggleTheme(){
+    const el = document.body;
+    el.setAttribute('data-theme', el.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+  }
+
+  // ---------- HELPERS ----------
+  const money = v => (isFinite(v) ? `$${Number(v).toFixed(2)}` : '—');
+  const pct   = v => (isFinite(v) ? `${(Number(v)*100).toFixed(1)}%` : '—');
+  const toNum = v => (v === null || v === '' || v === undefined) ? NaN : Number(v);
+  const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  // Get the first existing key from a row by trying several header variants
+  function pick(row, keys){
+    for(const k of keys){
+      if (k in row && row[k] !== undefined && row[k] !== '') return row[k];
     }
+    return undefined;
+  }
 
-    // ---------- HELPERS ----------
-    const money = v => (isFinite(v) ? `$${Number(v).toFixed(2)}` : '—');
-    const pct   = v => (isFinite(v) ? `${(Number(v)*100).toFixed(1)}%` : '—');
-    const toNum = v => (v === null || v === '' || v === undefined) ? NaN : Number(v);
-    const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-
-    // ---------- CSV PARSER ----------
-    function parseCSV(text){
-      const lines = text.replace(/\r/g,'').split('\n').filter(Boolean);
-      if(!lines.length) return {header:[], rows:[]};
-      const header = splitCSVLine(lines[0]);
-      const rows = [];
-      for(let i=1;i<lines.length;i++){
-        const cols = splitCSVLine(lines[i]);
-        const obj = {};
-        header.forEach((h,idx)=> obj[h] = cols[idx] ?? '');
-        rows.push(obj);
-      }
-      return {header, rows};
+  // ---------- CSV PARSER ----------
+  function parseCSV(text){
+    const lines = text.replace(/\r/g,'').split('\n').filter(l => l.trim().length);
+    if(!lines.length) return {header:[], rows:[]};
+    const header = splitCSVLine(lines[0]).map(h => h.trim());
+    const rows = [];
+    for(let i=1;i<lines.length;i++){
+      const cols = splitCSVLine(lines[i]);
+      const obj = {};
+      header.forEach((h,idx)=> obj[h] = (cols[idx] ?? '').trim());
+      rows.push(obj);
     }
-    function splitCSVLine(line){
-      const out = []; let cur = '', inQ=false;
-      for(let i=0;i<line.length;i++){
-        const ch = line[i], nx = line[i+1];
-        if(ch === '"' && inQ && nx === '"'){ cur += '"'; i++; continue; }
-        if(ch === '"'){ inQ = !inQ; continue; }
-        if(ch === ',' && !inQ){ out.push(cur); cur=''; continue; }
-        cur += ch;
-      }
-      out.push(cur);
-      return out;
+    return {header, rows};
+  }
+  function splitCSVLine(line){
+    const out = []; let cur = '', inQ=false;
+    for(let i=0;i<line.length;i++){
+      const ch = line[i], nx = line[i+1];
+      if(ch === '"' && inQ && nx === '"'){ cur += '"'; i++; continue; }
+      if(ch === '"'){ inQ = !inQ; continue; }
+      if(ch === ',' && !inQ){ out.push(cur); cur=''; continue; }
+      cur += ch;
     }
+    out.push(cur);
+    return out;
+  }
 
-    // ---------- RUN PRICING ----------
-    async function runPricing(){
-      const btn = document.getElementById('runBtn');
-      btn.disabled = true; btn.textContent = 'Running…';
+  // ---------- RUN PRICING ----------
+  async function runPricing(){
+    const btn = document.getElementById('runBtn') || {disabled:false, textContent:''};
+    btn.disabled = true; btn.textContent = 'Running…';
+    try{
+      const raw = await tryFetchText(["data/products.csv","products.csv"]);
+      if(raw){ processProducts(raw); return; }
+
+      const rec = await tryFetchText(["data/price_recommendations.csv","price_recommendations.csv"]);
+      if(rec){ processRecommendations(rec); return; }
+
+      alert("No CSV found. Add data/products.csv (preferred) or data/price_recommendations.csv to the repo.");
+    } finally{
+      btn.disabled = false; btn.textContent = 'Run Pricing';
+    }
+  }
+
+  async function tryFetchText(paths){
+    for(const p of paths){
       try{
-        // 1) Prefer raw products.csv and compute recommendations
-        const raw = await tryFetchText(["data/products.csv","products.csv"]);
-        if(raw){ return processProducts(raw); }
+        const res = await fetch(p, {cache:"no-store"});
+        if(res.ok) return await res.text();
+      }catch(_){}
+    }
+    return null;
+  }
 
-        // 2) Fallback to precomputed recommendations
-        const rec = await tryFetchText(["data/price_recommendations.csv","price_recommendations.csv"]);
-        if(rec){ return processRecommendations(rec); }
+  // ---------- PIPELINES ----------
+  // Flexible reader for your products.csv with minimal columns
+  function processProducts(csvText){
+    const {rows} = parseCSV(csvText);
 
-        alert("No CSV found. Add data/products.csv (preferred) or data/price_recommendations.csv to the repo.");
-      } finally{
-        btn.disabled = false; btn.textContent = 'Run Pricing';
+    const recs = rows.map(r=>{
+      // Flexible header mapping
+      const id   = (pick(r, ['product_id','id','pid','SKU','sku']) ?? '').toString();
+      const name = pick(r, ['name','product','title']) ?? '(No name)';
+      const cat  = pick(r, ['category','cat','dept']) ?? '';
+      let cur    = toNum(pick(r, ['current_price','current','price','current_pr','curr_price','list_price']));
+      let cost   = toNum(pick(r, ['unit_cost','cost','cogs']));
+      let inv    = toNum(pick(r, ['inventory_on_hand','inventory','stock','on_hand','qty']));
+      let rop    = toNum(pick(r, ['reorder_point','reorder','rop','min_stock']));
+      let demand = toNum(pick(r, ['demand_index','demand','popularity','score']));
+
+      // Defaults / imputations to avoid $0.00 outputs
+      if(!isFinite(cur) && isFinite(cost)) cur = cost * 1.20;
+      if(!isFinite(cost) && isFinite(cur)) cost = cur * 0.70;
+      if(!isFinite(cur) && !isFinite(cost)) { cur = 10; cost = 7; } // very rough fallback
+
+      if(!isFinite(inv)) inv = NaN;                 // optional
+      if(!isFinite(rop)) rop = isFinite(inv) ? Math.max(1, inv*0.4) : 10;
+      if(!isFinite(demand)) demand = 0.5;           // neutral demand
+
+      // --- Heuristic pricing (same guardrails) ---
+      const baseMargin = 0.15;
+      const scarcity = (isFinite(inv) && isFinite(rop) && rop>0) ? Math.max(-0.10, Math.min(0.20, (rop - inv)/rop * 0.10)) : 0;
+      const demandAdj = (demand - 0.5) * 0.20; // [-10%, +10%]
+      const overstock = (isFinite(inv) && isFinite(rop) && inv > 2*rop) ? -0.08 : 0;
+
+      let recPrice = cost * (1 + baseMargin + demandAdj + scarcity + overstock);
+      // Guardrails with whatever current price we have
+      if(isFinite(cur)){
+        const capUp = cur * 1.25;
+        const capDn = Math.max(cost*1.05, cur * 0.85);
+        recPrice = Math.min(capUp, Math.max(capDn, recPrice));
       }
-    }
+      if(!isFinite(recPrice) || recPrice <= 0) recPrice = Math.max(0.01, isFinite(cur) ? cur : cost * 1.1);
 
-    async function tryFetchText(paths){
-      for(const p of paths){
-        try{
-          const res = await fetch(p, {cache:"no-store"});
-          if(res.ok) return await res.text();
-        }catch(_){}
-      }
-      return null;
-    }
+      // Profit delta (illustrative)
+      const baseUnits = 100 * (0.5 + Math.max(0, Math.min(1, demand))); // 50–150
+      const priceChange = isFinite(cur) && cur>0 ? (recPrice - cur)/cur : 0;
+      const elasticity = -1.2;
+      const units = baseUnits * (1 + elasticity * priceChange);
+      const profitNow = (isFinite(cur) && isFinite(cost)) ? (cur - cost) * baseUnits : 0;
+      const profitRec = (recPrice - cost) * Math.max(0, units);
+      const delta = profitRec - profitNow;
 
-    // ---------- PIPELINES ----------
-    function processProducts(csvText){
-      const {rows} = parseCSV(csvText);
-      // Normalize & compute recommendations (simple, transparent heuristic)
-      const recs = rows.map(r=>{
-        const cur = toNum(r.current_price);
-        const cost = toNum(r.unit_cost);
-        const inv = toNum(r.inventory_on_hand);
-        const rp  = toNum(r.reorder_point);
-        const demand = Math.min(1, Math.max(0, toNum(r.demand_index)));
-
-        // Base markup over cost
-        const baseMargin = 0.15; // 15%
-        // Demand & inventory adjustments
-        const scarcity = isFinite(inv) && isFinite(rp) && rp>0 ? Math.max(-0.10, Math.min(0.20, (rp - inv)/rp * 0.10)) : 0;
-        const demandAdj = (demand - 0.5) * 0.20; // [-10%, +10%]
-        const overstock = isFinite(inv) && isFinite(rp) && rp>0 && inv > 2*rp ? -0.08 : 0;
-
-        let recPrice = isFinite(cost) ? cost * (1 + baseMargin + demandAdj + scarcity + overstock) : cur;
-        // Guardrails
-        if(isFinite(cur)){
-          const capUp = cur * 1.25;  // don't jump >25% up
-          const capDn = Math.max(cost*1.05, cur * 0.85); // keep >=5% over cost; don't cut >15%
-          recPrice = Math.min(capUp, Math.max(capDn, recPrice));
-        }
-        recPrice = Number.isFinite(recPrice) ? Number(recPrice) : 0;
-
-        // Coarse unit forecast & profit delta (purely illustrative)
-        const baseUnits = 100 * (isFinite(demand) ? (0.5 + demand) : 1); // 50–150
-        const priceChange = isFinite(cur) && cur>0 ? (recPrice - cur)/cur : 0;
-        const elasticity = -1.2; // assumed
-        const units = baseUnits * (1 + elasticity * priceChange); // linear approx.
-        const profitNow = (isFinite(cur) && isFinite(cost)) ? (cur - cost) * baseUnits : 0;
-        const profitRec = (recPrice - cost) * Math.max(0, units);
-        const delta = profitRec - profitNow;
-
-        return {
-          product_id: (r.product_id ?? '').toString(),
-          name: r.name ?? '(No name)',
-          category: r.category ?? '',
-          current_price: cur,
-          recommended_price: recPrice,
-          unit_cost: cost,
-          inventory_on_hand: inv,
-          reorder_point: rp,
-          expected_profit_delta: delta,
-          notes: r.notes ?? ''
-        };
-      });
-
-      fullData = { recommendations: recs };
-      afterDataLoad();
-    }
-
-    function processRecommendations(csvText){
-      const {rows} = parseCSV(csvText);
-      rows.forEach(r=>{
-        r.product_id = (r.product_id ?? '').toString();
-        r.name = r.name ?? '(No name)';
-        r.category = r.category ?? '';
-        r.current_price = toNum(r.current_price);
-        r.recommended_price = toNum(r.recommended_price);
-        r.unit_cost = toNum(r.unit_cost);
-        r.inventory_on_hand = toNum(r.inventory_on_hand);
-        r.reorder_point = toNum(r.reorder_point);
-        r.expected_profit_delta = toNum(r.expected_profit_delta);
-        r.notes = r.notes ?? '';
-      });
-      fullData = { recommendations: rows };
-      afterDataLoad();
-    }
-
-    function afterDataLoad(){
-      populateCategoryFilter();
-      computeKPIs();
-      renderTable();
-      populateProductSelect();
-      drawEmptyChart();
-      document.getElementById('sliderLabel').textContent = 'Select product';
-    }
-
-    // ---------- KPIs ----------
-    function computeKPIs(){
-      if(!fullData) return;
-      const rows = fullData.recommendations;
-      const uplift = rows.reduce((acc,r)=> acc + (Number(r.expected_profit_delta)||0), 0);
-      const up = rows.filter(r => r.recommended_price > r.current_price).length;
-      const down = rows.filter(r => r.recommended_price < r.current_price).length;
-
-      const margins = rows.map(r=>{
-        const rp = Number(r.recommended_price), uc = Number(r.unit_cost);
-        if(!isFinite(rp) || !isFinite(uc) || rp<=0) return NaN;
-        return (rp - uc)/rp;
-      }).filter(x=>isFinite(x));
-      const avgMargin = margins.length ? (margins.reduce((a,b)=>a+b,0)/margins.length) : NaN;
-
-      document.getElementById('kpiUplift').textContent = money(uplift);
-      document.getElementById('kpiUp').textContent = `${up} ↑`;
-      document.getElementById('kpiDown').textContent = `${down} ↓`;
-      document.getElementById('kpiMargin').textContent = pct(avgMargin);
-    }
-
-    // ---------- FILTERS + TABLE ----------
-    function populateCategoryFilter(){
-      const sel = document.getElementById('category');
-      const cats = Array.from(new Set((fullData?.recommendations || []).map(r => r.category).filter(Boolean))).sort();
-      sel.innerHTML = '<option value="">All categories</option>' + cats.map(c=>`<option>${escapeHtml(c)}</option>`).join('');
-    }
-
-    function renderTable(){
-      if(!fullData) return;
-      const q = document.getElementById('search').value.toLowerCase();
-      const cat = document.getElementById('category').value;
-      filtered = fullData.recommendations.filter(r=>{
-        const matchesQ = !q || (r.name||'').toLowerCase().includes(q) || (r.product_id||'').toLowerCase().includes(q);
-        const matchesC = !cat || r.category === cat;
-        return matchesQ && matchesC;
-      });
-      sortData();
-      const tbody = document.getElementById('tbody');
-      tbody.innerHTML = filtered.map(r=>{
-        const deltaClass = Number(r.expected_profit_delta) >= 0 ? 'delta good' : 'delta bad';
-        const inv = (Number(r.inventory_on_hand)||0), rp = (Number(r.reorder_point)||0);
-        let invBadge = '<span class="chip">OK</span>';
-        if(isFinite(inv) && isFinite(rp)){
-          if(inv <= rp) invBadge = '<span class="chip" style="border-color:var(--bad);color:var(--bad)">Low</span>';
-          else if(inv > 2*rp) invBadge = '<span class="chip" style="border-color:var(--good);color:var(--good)">High</span>';
-        }
-        return `
-          <tr>
-            <td>${escapeHtml(r.name||'(No name)')}</td>
-            <td>${escapeHtml(r.product_id)}</td>
-            <td class="money">${money(r.current_price)}</td>
-            <td class="money"><b>${money(r.recommended_price)}</b></td>
-            <td class="${deltaClass}">${isFinite(r.expected_profit_delta)? Number(r.expected_profit_delta).toFixed(2) : '—'}</td>
-            <td>${invBadge}</td>
-            <td class="muted">${escapeHtml(r.notes||'')}</td>
-          </tr>
-        `;
-      }).join('');
-    }
-
-    function sortBy(key){
-      if(currentSort.key === key){ currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc'; }
-      else { currentSort = {key, dir:'asc'}; }
-      renderTable();
-    }
-    function sortData(){
-      const dir = currentSort.dir === 'asc' ? 1 : -1;
-      filtered.sort((a,b)=>{
-        const va = a[currentSort.key], vb = b[currentSort.key];
-        if(typeof va === 'string' && typeof vb === 'string') return va.localeCompare(vb)*dir;
-        return ((Number(va)||0) - (Number(vb)||0)) * dir;
-      });
-    }
-
-    // ---------- DOWNLOAD CSV ----------
-    function downloadCSV(){
-      if(!fullData || !fullData.recommendations){ alert("Run pricing first."); return; }
-      const rows = fullData.recommendations;
-      const header = ["product_id","name","category","current_price","recommended_price","unit_cost","inventory_on_hand","reorder_point","expected_profit_delta","notes"];
-      const csv = [
-        header.join(","),
-        ...rows.map(r => header.map(h => `"${(r[h] ?? '').toString().replace(/"/g,'""')}"`).join(",")),
-      ].join("\n");
-      const blob = new Blob([csv], { type:"text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = "price_recommendations.csv"; a.click();
-      URL.revokeObjectURL(url);
-    }
-
-    // ---------- CURVE ----------
-    function populateProductSelect(){
-      const sel = document.getElementById('productSelect');
-      sel.innerHTML = '';
-      (filtered||[]).forEach(r=>{
-        const opt = document.createElement('option');
-        opt.value = r.product_id;
-        opt.textContent = r.name ? `${r.name} — ${r.product_id}` : r.product_id;
-        sel.appendChild(opt);
-      });
-      if(sel.options.length){ sel.value = sel.options[0].value; showCurve(); }
-    }
-
-    function showCurve(){
-      const pid = document.getElementById('productSelect').value;
-      const row = (filtered||[]).find(r => r.product_id === pid);
-      if(!row){ drawEmptyChart(); document.getElementById('sliderLabel').textContent = 'No curve data'; return; }
-
-      const Pc = Number(row.current_price);
-      const Pr = Number(row.recommended_price);
-      const delta = Number(row.expected_profit_delta);
-      const baseProfit = 0;
-      const vertexProfit = baseProfit + (isFinite(delta) ? delta : 0);
-      const k = (Pr !== Pc) ? (vertexProfit - baseProfit)/((Pr - Pc)*(Pr - Pc)) : 0.01;
-
-      const prices = [];
-      const span = Math.max(Pr, Pc) * 0.6 + Math.max(Pr, Pc, 10);
-      const minP = Math.max(0.01, Math.min(Pr, Pc) - span*0.5);
-      const maxP = Math.max(Pr, Pc) + span*0.5;
-      const steps = 60;
-      for(let i=0;i<=steps;i++){
-        const p = minP + (i/steps)*(maxP - minP);
-        const profit = vertexProfit - k*(p - Pr)*(p - Pr);
-        prices.push({price:p, profit:profit});
-      }
-
-      currentCurve = { product_id: row.product_id, name: row.name, current_price: Pc, recommended_price: Pr, points: prices };
-      drawChart(currentCurve);
-      setupSlider(currentCurve);
-    }
-
-    function drawEmptyChart(){
-      const svg = document.getElementById('chart');
-      while(svg.firstChild) svg.removeChild(svg.firstChild);
-    }
-
-    function drawChart(curve){
-      const svg = document.getElementById('chart');
-      while(svg.firstChild) svg.removeChild(svg.firstChild);
-      const W = Number(svg.getAttribute('width'));
-      const H = Number(svg.getAttribute('height'));
-      const pad = 38, ox=pad, oy=pad, iw=W-pad*2, ih=H-pad*2;
-
-      const prices = curve.points.map(p=>p.price);
-      const profits = curve.points.map(p=>p.profit);
-      const minP = Math.min(...prices), maxP = Math.max(...prices);
-      const minY = Math.min(0,...profits), maxY = Math.max(...profits);
-
-      const X = v => ox + ((v-minP)/(maxP-minP || 1))*iw;
-      const Y = v => oy + (1-((v-minY)/(maxY-minY || 1)))*ih;
-
-      const mkLine=(x1,y1,x2,y2,st="#3a4154",w=1,ds=null)=>{
-        const l=document.createElementNS("http://www.w3.org/2000/svg","line");
-        l.setAttribute("x1",x1); l.setAttribute("y1",y1); l.setAttribute("x2",x2); l.setAttribute("y2",y2);
-        l.setAttribute("stroke",st); l.setAttribute("stroke-width",w); if(ds) l.setAttribute("stroke-dasharray",ds);
-        svg.appendChild(l);
+      return {
+        product_id: id || (pick(r, ['sku','SKU']) ?? ''),
+        name, category: cat,
+        current_price: cur,
+        recommended_price: recPrice,
+        unit_cost: cost,
+        inventory_on_hand: inv,
+        reorder_point: rop,
+        expected_profit_delta: delta,
+        notes: pick(r, ['notes','note','desc','description']) ?? ''
       };
-      // axes
-      mkLine(ox, oy+ih, ox+iw, oy+ih);
-      mkLine(ox, oy, ox, oy+ih);
+    });
 
-      // curve path
-      let d="";
-      curve.points.forEach((pt,i)=>{ d += (i? " L ":"M ") + X(pt.price) + " " + Y(pt.profit); });
-      const path=document.createElementNS("http://www.w3.org/2000/svg","path");
-      path.setAttribute("d", d); path.setAttribute("fill","none");
-      path.setAttribute("stroke", getComputedStyle(document.body).getPropertyValue('--accent').trim() || "#6aa5ff");
-      path.setAttribute("stroke-width","2.5"); svg.appendChild(path);
+    fullData = { recommendations: recs };
+    afterDataLoad();
+  }
 
-      // markers
-      mkLine(X(curve.current_price), oy, X(curve.current_price), oy+ih, "#8b93a6", 1, "5,4");
-      mkLine(X(curve.recommended_price), oy, X(curve.recommended_price), oy+ih, "#22c55e", 1.5, "5,4");
+  // If you provide precomputed recommendations, we still accept flexible headers
+  function processRecommendations(csvText){
+    const {rows} = parseCSV(csvText);
+    rows.forEach(r=>{
+      r.product_id = (pick(r, ['product_id','id','pid','SKU','sku']) ?? '').toString();
+      r.name = pick(r, ['name','product','title']) ?? '(No name)';
+      r.category = pick(r, ['category','cat','dept']) ?? '';
+      r.current_price = toNum(pick(r, ['current_price','current','price','current_pr','curr_price','list_price']));
+      r.recommended_price = toNum(pick(r, ['recommended_price','rec_price','target_price','suggested']));
+      r.unit_cost = toNum(pick(r, ['unit_cost','cost','cogs']));
+      r.inventory_on_hand = toNum(pick(r, ['inventory_on_hand','inventory','stock','on_hand','qty']));
+      r.reorder_point = toNum(pick(r, ['reorder_point','reorder','rop','min_stock']));
+      r.expected_profit_delta = toNum(pick(r, ['expected_profit_delta','profit_delta','uplift']));
+      r.notes = pick(r, ['notes','note','desc','description']) ?? '';
+    });
+    fullData = { recommendations: rows };
+    afterDataLoad();
+  }
 
-      const m=document.createElementNS("http://www.w3.org/2000/svg","line");
-      m.setAttribute("id","sliderMarker"); m.setAttribute("y1",oy); m.setAttribute("y2",oy+ih);
-      m.setAttribute("stroke","#ef4444"); m.setAttribute("stroke-width","2"); svg.appendChild(m);
-      moveMarkerTo(curve.recommended_price, curve);
-      document.getElementById('sliderLabel').textContent = `${curve.name || curve.product_id}`;
+  function afterDataLoad(){
+    populateCategoryFilter();
+    computeKPIs();
+    renderTable();
+    populateProductSelect();
+    drawEmptyChart();
+    document.getElementById('sliderLabel').textContent = 'Select product';
+  }
+
+  // ---------- KPIs ----------
+  function computeKPIs(){
+    if(!fullData) return;
+    const rows = fullData.recommendations;
+    const uplift = rows.reduce((acc,r)=> acc + (Number(r.expected_profit_delta)||0), 0);
+    const up = rows.filter(r => r.recommended_price > r.current_price).length;
+    const down = rows.filter(r => r.recommended_price < r.current_price).length;
+
+    const margins = rows.map(r=>{
+      const rp = Number(r.recommended_price), uc = Number(r.unit_cost);
+      if(!isFinite(rp) || !isFinite(uc) || rp<=0) return NaN;
+      return (rp - uc)/rp;
+    }).filter(x=>isFinite(x));
+    const avgMargin = margins.length ? (margins.reduce((a,b)=>a+b,0)/margins.length) : NaN;
+
+    document.getElementById('kpiUplift').textContent = money(uplift);
+    document.getElementById('kpiUp').textContent = `${up} ↑`;
+    document.getElementById('kpiDown').textContent = `${down} ↓`;
+    document.getElementById('kpiMargin').textContent = pct(avgMargin);
+  }
+
+  // ---------- FILTERS + TABLE ----------
+  function populateCategoryFilter(){
+    const sel = document.getElementById('category');
+    const cats = Array.from(new Set((fullData?.recommendations || []).map(r => r.category).filter(Boolean))).sort();
+    sel.innerHTML = '<option value="">All categories</option>' + cats.map(c=>`<option>${escapeHtml(c)}</option>`).join('');
+  }
+
+  function renderTable(){
+    if(!fullData) return;
+    const q = document.getElementById('search').value.toLowerCase();
+    const cat = document.getElementById('category').value;
+    filtered = fullData.recommendations.filter(r=>{
+      const matchesQ = !q || (r.name||'').toLowerCase().includes(q) || (r.product_id||'').toLowerCase().includes(q);
+      const matchesC = !cat || r.category === cat;
+      return matchesQ && matchesC;
+    });
+    sortData();
+    const tbody = document.getElementById('tbody');
+    tbody.innerHTML = filtered.map(r=>{
+      const deltaClass = Number(r.expected_profit_delta) >= 0 ? 'delta good' : 'delta bad';
+      const inv = (Number(r.inventory_on_hand)); const rp = (Number(r.reorder_point));
+      let invBadge = '<span class="chip">OK</span>';
+      if(isFinite(inv) && isFinite(rp)){
+        if(inv <= rp) invBadge = '<span class="chip" style="border-color:var(--bad);color:var(--bad)">Low</span>';
+        else if(inv > 2*rp) invBadge = '<span class="chip" style="border-color:var(--good);color:var(--good)">High</span>';
+      }
+      return `
+        <tr>
+          <td>${escapeHtml(r.name||'(No name)')}</td>
+          <td>${escapeHtml(r.product_id)}</td>
+          <td class="money">${money(r.current_price)}</td>
+          <td class="money"><b>${money(r.recommended_price)}</b></td>
+          <td class="${deltaClass}">${isFinite(r.expected_profit_delta)? Number(r.expected_profit_delta).toFixed(2) : '—'}</td>
+          <td>${invBadge}</td>
+          <td class="muted">${escapeHtml(r.notes||'')}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function sortBy(key){
+    if(currentSort.key === key){ currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc'; }
+    else { currentSort = {key, dir:'asc'}; }
+    renderTable();
+  }
+  function sortData(){
+    const dir = currentSort.dir === 'asc' ? 1 : -1;
+    filtered.sort((a,b)=>{
+      const va = a[currentSort.key], vb = b[currentSort.key];
+      if(typeof va === 'string' && typeof vb === 'string') return va.localeCompare(vb)*dir;
+      return ((Number(va)||0) - (Number(vb)||0)) * dir;
+    });
+  }
+
+  // ---------- DOWNLOAD CSV ----------
+  function downloadCSV(){
+    if(!fullData || !fullData.recommendations){ alert("Run pricing first."); return; }
+    const rows = fullData.recommendations;
+    const header = ["product_id","name","category","current_price","recommended_price","unit_cost","inventory_on_hand","reorder_point","expected_profit_delta","notes"];
+    const csv = [
+      header.join(","),
+      ...rows.map(r => header.map(h => `"${(r[h] ?? '').toString().replace(/"/g,'""')}"`).join(",")),
+    ].join("\n");
+    const blob = new Blob([csv], { type:"text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "price_recommendations.csv"; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ---------- CURVE ----------
+  function populateProductSelect(){
+    const sel = document.getElementById('productSelect');
+    if(!sel) return;
+    sel.innerHTML = '';
+    (filtered||[]).forEach(r=>{
+      const opt = document.createElement('option');
+      opt.value = r.product_id;
+      opt.textContent = r.name ? `${r.name} — ${r.product_id}` : r.product_id;
+      sel.appendChild(opt);
+    });
+    if(sel.options.length){ sel.value = sel.options[0].value; showCurve(); }
+  }
+
+  function showCurve(){
+    const sel = document.getElementById('productSelect');
+    if(!sel) return;
+    const pid = sel.value;
+    const row = (filtered||[]).find(r => r.product_id === pid);
+    if(!row){ drawEmptyChart(); document.getElementById('sliderLabel').textContent = 'No curve data'; return; }
+
+    const Pc = Number(row.current_price);
+    const Pr = Number(row.recommended_price);
+    const delta = Number(row.expected_profit_delta);
+    const baseProfit = 0;
+    const vertexProfit = baseProfit + (isFinite(delta) ? delta : 0);
+    const k = (Pr !== Pc) ? (vertexProfit - baseProfit)/((Pr - Pc)*(Pr - Pc)) : 0.01;
+
+    const prices = [];
+    const span = Math.max(Pr, Pc) * 0.6 + Math.max(Pr, Pc, 10);
+    const minP = Math.max(0.01, Math.min(Pr, Pc) - span*0.5);
+    const maxP = Math.max(Pr, Pc) + span*0.5;
+    const steps = 60;
+    for(let i=0;i<=steps;i++){
+      const p = minP + (i/steps)*(maxP - minP);
+      const profit = vertexProfit - k*(p - Pr)*(p - Pr);
+      prices.push({price:p, profit:profit});
     }
 
-    function setupSlider(curve){
-      const prices = curve.points.map(p=>p.price);
-      const minP = Math.min(...prices), maxP = Math.max(...prices);
-      const slider = document.getElementById('slider');
-      slider.min = minP; slider.max = maxP;
-      slider.step = ((maxP - minP)/100).toFixed(2);
-      slider.value = curve.recommended_price;
-      updateSliderLabel(curve.recommended_price, curve);
-    }
+    currentCurve = { product_id: row.product_id, name: row.name, current_price: Pc, recommended_price: Pr, points: prices };
+    drawChart(currentCurve);
+    setupSlider(currentCurve);
+  }
 
-    function moveMarker(val){
-      if(!currentCurve) return;
-      const price = parseFloat(val);
-      moveMarkerTo(price, currentCurve);
-      updateSliderLabel(price, currentCurve);
-    }
-    function moveMarkerTo(price, curve){
-      const svg=document.getElementById('chart');
-      const W=Number(svg.getAttribute('width')), H=Number(svg.getAttribute('height'));
-      const pad=38, ox=pad, oy=pad, iw=W-pad*2, ih=H-pad*2;
-      const prices=curve.points.map(p=>p.price);
-      const minP=Math.min(...prices), maxP=Math.max(...prices);
-      const X=v=> ox + ((v-minP)/(maxP-minP || 1))*iw;
-      const marker=document.getElementById('sliderMarker');
-      marker.setAttribute('x1',X(price)); marker.setAttribute('x2',X(price));
-    }
-    function updateSliderLabel(price, curve){
-      let nearest = curve.points[0];
-      curve.points.forEach(p => { if(Math.abs(p.price - price) < Math.abs(nearest.price - price)) nearest = p; });
-      document.getElementById('sliderLabel').textContent =
-        `${curve.name || curve.product_id} — Price $${Number(price).toFixed(2)}  •  Profit ≈ ${money(nearest.profit)}`;
-    }
-  </script>
+  function drawEmptyChart(){
+    const svg = document.getElementById('chart');
+    while(svg && svg.firstChild) svg.removeChild(svg.firstChild);
+  }
+
+  function drawChart(curve){
+    const svg = document.getElementById('chart');
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+    const W = Number(svg.getAttribute('width'));
+    const H = Number(svg.getAttribute('height'));
+    const pad = 38, ox=pad, oy=pad, iw=W-pad*2, ih=H-pad*2;
+
+    const prices = curve.points.map(p=>p.price);
+    const profits = curve.points.map(p=>p.profit);
+    const minP = Math.min(...prices), maxP = Math.max(...prices);
+    const minY = Math.min(0,...profits), maxY = Math.max(...profits);
+
+    const X = v => ox + ((v-minP)/(maxP-minP || 1))*iw;
+    const Y = v => oy + (1-((v-minY)/(maxY-minY || 1)))*ih;
+
+    const mkLine=(x1,y1,x2,y2,st="#3a4154",w=1,ds=null)=>{
+      const l=document.createElementNS("http://www.w3.org/2000/svg","line");
+      l.setAttribute("x1",x1); l.setAttribute("y1",y1); l.setAttribute("x2",x2); l.setAttribute("y2",y2);
+      l.setAttribute("stroke",st); l.setAttribute("stroke-width",w); if(ds) l.setAttribute("stroke-dasharray",ds);
+      svg.appendChild(l);
+    };
+    // axes
+    mkLine(ox, oy+ih, ox+iw, oy+ih);
+    mkLine(ox, oy, ox, oy+ih);
+
+    // curve path
+    let d="";
+    curve.points.forEach((pt,i)=>{ d += (i? " L ":"M ") + X(pt.price) + " " + Y(pt.profit); });
+    const path=document.createElementNS("http://www.w3.org/2000/svg","path");
+    path.setAttribute("d", d); path.setAttribute("fill","none");
+    path.setAttribute("stroke", getComputedStyle(document.body).getPropertyValue('--accent').trim() || "#6aa5ff");
+    path.setAttribute("stroke-width","2.5"); svg.appendChild(path);
+
+    // markers
+    mkLine(X(curve.current_price), oy, X(curve.current_price), oy+ih, "#8b93a6", 1, "5,4");
+    mkLine(X(curve.recommended_price), oy, X(curve.recommended_price), oy+ih, "#22c55e", 1.5, "5,4");
+
+    const m=document.createElementNS("http://www.w3.org/2000/svg","line");
+    m.setAttribute("id","sliderMarker"); m.setAttribute("y1",oy); m.setAttribute("y2",oy+ih);
+    m.setAttribute("stroke","#ef4444"); m.setAttribute("stroke-width","2"); svg.appendChild(m);
+    moveMarkerTo(curve.recommended_price, curve);
+    const lbl = document.getElementById('sliderLabel');
+    if(lbl) lbl.textContent = `${curve.name || curve.product_id}`;
+  }
+
+  function setupSlider(curve){
+    const slider = document.getElementById('slider'); if(!slider) return;
+    const prices = curve.points.map(p=>p.price);
+    const minP = Math.min(...prices), maxP = Math.max(...prices);
+    slider.min = minP; slider.max = maxP;
+    slider.step = ((maxP - minP)/100).toFixed(2);
+    slider.value = curve.recommended_price;
+    updateSliderLabel(curve.recommended_price, curve);
+  }
+
+  function moveMarker(val){
+    if(!currentCurve) return;
+    const price = parseFloat(val);
+    moveMarkerTo(price, currentCurve);
+    updateSliderLabel(price, currentCurve);
+  }
+  function moveMarkerTo(price, curve){
+    const svg=document.getElementById('chart');
+    const W=Number(svg.getAttribute('width')), H=Number(svg.getAttribute('height'));
+    const pad=38, ox=pad, oy=pad, iw=W-pad*2, ih=H-pad*2;
+    const prices=curve.points.map(p=>p.price);
+    const minP=Math.min(...prices), maxP=Math.max(...prices);
+    const X=v=> ox + ((v-minP)/(maxP-minP || 1))*iw;
+    const marker=document.getElementById('sliderMarker');
+    marker.setAttribute('x1',X(price)); marker.setAttribute('x2',X(price));
+  }
+  function updateSliderLabel(price, curve){
+    const lbl = document.getElementById('sliderLabel'); if(!lbl) return;
+    let nearest = curve.points[0];
+    curve.points.forEach(p => { if(Math.abs(p.price - price) < Math.abs(nearest.price - price)) nearest = p; });
+    lbl.textContent = `${curve.name || curve.product_id} — Price $${Number(price).toFixed(2)}  •  Profit ≈ ${money(nearest.profit)}`;
+  }
+</script>
 </body>
 </html>
