@@ -57,6 +57,20 @@
       background:transparent; color:var(--text); border:1px solid var(--border); border-radius:10px;
       padding:10px 12px; min-width:220px; outline:none;
     }
+    @media (max-width: 720px){
+      .kpis{grid-template-columns:1fr}
+      .controls{width:100%}
+      .chart-wrap{flex-direction:column}
+      #chart{width:100%; height:260px}
+      table{display:block; overflow-x:auto; white-space:nowrap}
+    }
+    @media (max-width: 520px){
+      table{display:none}
+      .cards{display:grid; gap:10px}
+      .card-item{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px}
+      .card-row{display:flex; justify-content:space-between; margin:4px 0}
+      .label{color:var(--muted); font-size:12px}
+    }
     table{width:100%; border-collapse:separate; border-spacing:0; border:1px solid var(--border); border-radius:12px; overflow:hidden}
     thead th{
       background:var(--card); position:sticky; top:0; z-index:1; font-size:12px; color:var(--muted);
@@ -170,6 +184,9 @@
   </div>
 
   <script>
+    // ===== API base =====
+    const API_URL = "http://127.0.0.1:8000";
+
     // ------------- state -------------
     let fullData = null;       // {recommendations:[...]}
     let filtered = [];         // rendered rows after search/filter
@@ -188,21 +205,24 @@
     async function runPricing(){
       const btns = document.querySelectorAll('button'); btns.forEach(b => b.disabled = true);
       try{
-        const res = await fetch('http://localhost:8000/recommend', {method:'POST'});
+        const res = await fetch(`${API_URL}/recommend`, { method: "POST" });
         const data = await res.json();
         if(!data.recommendations){ alert('Error: ' + JSON.stringify(data)); return; }
+
         // ensure name/category exist
         data.recommendations.forEach(r=>{
           if(!('name' in r)) r.name = '(No name)';
           if(!('category' in r)) r.category = '';
         });
+
         fullData = data;
         populateCategoryFilter();
         computeKPIs();
         renderTable();
         populateProductSelect();
       }catch(e){
-        alert('Failed to fetch recommendations.\n' + e);
+        console.error(e);
+        alert('Failed to fetch recommendations.\n' + (e?.message || e));
       }finally{
         btns.forEach(b => b.disabled = false);
       }
@@ -214,7 +234,6 @@
       const uplift = rows.reduce((acc,r)=> acc + (Number(r.expected_profit_delta)||0), 0);
       const up = rows.filter(r => r.recommended_price > r.current_price).length;
       const down = rows.filter(r => r.recommended_price < r.current_price).length;
-      // naive margin approximation (recommended)
       const avgMargin = rows.reduce((acc,r)=> acc + ((r.recommended_price - r.unit_cost) / Math.max(r.recommended_price,1e-6)), 0) / Math.max(rows.length,1);
       document.getElementById('kpiUplift').textContent = money(uplift);
       document.getElementById('kpiUp').textContent = `${up} ↑`;
@@ -279,7 +298,6 @@
     function downloadCSV(){
       if(!fullData || !fullData.recommendations){ alert("Run Pricing first."); return; }
       const rows = fullData.recommendations;
-      // make columns stable & friendly
       const header = ["product_id","name","category","current_price","recommended_price","unit_cost","inventory_on_hand","reorder_point","expected_profit_delta","notes"];
       const csv = [
         header.join(","),
@@ -308,19 +326,24 @@
     async function showCurve(){
       const pid = document.getElementById('productSelect').value;
       if(!pid) return;
-      const res = await fetch('http://localhost:8000/curve?product_id='+encodeURIComponent(pid));
-      const curve = await res.json();
-      if(!curve.points){ document.getElementById('sliderLabel').textContent = 'No curve data'; return; }
-      currentCurve = curve;
-      drawChart(curve);
-      setupSlider(curve);
+      try{
+        const res = await fetch(`${API_URL}/curve?product_id=${encodeURIComponent(pid)}`);
+        const curve = await res.json();
+        if(!curve.points){ document.getElementById('sliderLabel').textContent = 'No curve data'; return; }
+        currentCurve = curve;
+        drawChart(curve);
+        setupSlider(curve);
+      }catch(e){
+        console.error(e);
+        document.getElementById('sliderLabel').textContent = 'Curve unavailable';
+      }
     }
 
     function drawChart(curve){
       const svg = document.getElementById('chart');
       while(svg.firstChild) svg.removeChild(svg.firstChild);
-      const W = svg.viewBox.baseVal.width || svg.getAttribute('width'); // numeric
-      const H = svg.viewBox.baseVal.height || svg.getAttribute('height');
+      const W = svg.viewBox?.baseVal?.width || svg.getAttribute('width');
+      const H = svg.viewBox?.baseVal?.height || svg.getAttribute('height');
       const pad = 38, ox=pad, oy=pad, iw=W-pad*2, ih=H-pad*2;
 
       const prices = curve.points.map(p=>p.price);
@@ -331,17 +354,15 @@
       const X = v => ox + ((v-minP)/(maxP-minP))*iw;
       const Y = v => oy + (1-((v-minY)/(maxY-minY || 1)))*ih;
 
-      // axes
       const mkLine=(x1,y1,x2,y2,st="#3a4154",w=1,ds=null)=>{
         const l=document.createElementNS("http://www.w3.org/2000/svg","line");
         l.setAttribute("x1",x1); l.setAttribute("y1",y1); l.setAttribute("x2",x2); l.setAttribute("y2",y2);
         l.setAttribute("stroke",st); l.setAttribute("stroke-width",w); if(ds) l.setAttribute("stroke-dasharray",ds);
         svg.appendChild(l);
       };
-      mkLine(ox, oy+ih, ox+iw, oy+ih); // x
-      mkLine(ox, oy, ox, oy+ih);       // y
+      mkLine(ox, oy+ih, ox+iw, oy+ih);
+      mkLine(ox, oy, ox, oy+ih);
 
-      // profit path
       let d="";
       curve.points.forEach((pt,i)=>{ d += (i? " L ":"M ") + X(pt.price) + " " + Y(pt.profit); });
       const path=document.createElementNS("http://www.w3.org/2000/svg","path");
@@ -349,11 +370,9 @@
       path.setAttribute("stroke", getComputedStyle(document.body).getPropertyValue('--accent').trim() || "#6aa5ff");
       path.setAttribute("stroke-width","2.5"); svg.appendChild(path);
 
-      // recommended & current
       mkLine(X(curve.current_price), oy, X(curve.current_price), oy+ih, "#8b93a6", 1, "5,4");
       mkLine(X(curve.recommended_price), oy, X(curve.recommended_price), oy+ih, "#22c55e", 1.5, "5,4");
 
-      // slider marker
       const m=document.createElementNS("http://www.w3.org/2000/svg","line");
       m.setAttribute("id","sliderMarker"); m.setAttribute("y1",oy); m.setAttribute("y2",oy+ih);
       m.setAttribute("stroke","#ef4444"); m.setAttribute("stroke-width","2"); svg.appendChild(m);
@@ -381,7 +400,7 @@
       const svg=document.getElementById('chart');
       const W=svg.getAttribute('width'), H=svg.getAttribute('height');
       const pad=38, ox=pad, oy=pad, iw=W-pad*2, ih=H-pad*2;
-      const prices=curve.points.map(p=>p.price), profits=curve.points.map(p=>p.profit);
+      const prices=curve.points.map(p=>p.price);
       const minP=Math.min(...prices), maxP=Math.max(...prices);
       const X=v=> ox + ((v-minP)/(maxP-minP))*iw;
       const marker=document.getElementById('sliderMarker');
@@ -395,8 +414,6 @@
     }
 
     // ------------- init -------------
-    // Auto-run if you want:
-    // runPricing();
   </script>
 </body>
 </html>
