@@ -1,0 +1,21 @@
+product_id,current_price,recommended_price,unit_cost,competitor_median_price,inventory_on_hand,reorder_point,expected_profit_delta,notes,name
+P1004,3.8,4.54,2.14,3.9450000000000003,26,46,41.57,Low inventory → +3% price. Competitor median ≈ 3.95 (±15% band).,Cold Brew
+P1012,4.1,4.37,2.4,3.915,96,15,37.39,High inventory → -3% price. Competitor median ≈ 3.92 (±15% band).,Kettle Chips
+P1015,3.82,3.32,1.53,3.9050000000000002,38,34,30.9,Competitor median ≈ 3.91 (±15% band).,Spring Water 500ml
+P1011,3.52,3.66,1.62,3.2800000000000002,56,11,20.55,High inventory → -3% price. Competitor median ≈ 3.28 (±15% band).,Trail Mix
+P1019,16.21,13.91,7.81,16.36,57,16,19.43,High inventory → -3% price. Competitor median ≈ 16.36 (±15% band).,Reusable Cup
+P1001,5.06,6.13,2.68,5.33,52,44,17.92,Competitor median ≈ 5.33 (±15% band).,Cappuccino
+P1014,3.78,4.35,1.38,3.9,191,45,14.91,High inventory → -3% price. Competitor median ≈ 3.90 (±15% band).,Granola Cup
+P1006,5.41,4.55,2.24,5.205,41,55,14.82,Low inventory → +3% price. Competitor median ≈ 5.21 (±15% band).,Chocolate Croissant
+P1007,10.18,11.76,4.12,10.54,159,44,12.63,High inventory → -3% price. Competitor median ≈ 10.54 (±15% band).,Banana Bread
+P1017,19.59,22.89,11.61,19.905,74,56,11.11,Competitor median ≈ 19.91 (±15% band).,Orange Juice
+P1018,3.57,2.94,1.35,3.3099999999999996,38,49,9.69,Low inventory → +3% price. Competitor median ≈ 3.31 (±15% band).,Iced Tea
+P1000,3.81,3.23,2.42,3.8049999999999997,128,14,8.89,High inventory → -3% price. Competitor median ≈ 3.80 (±15% band).,Espresso Shot
+P1010,2.84,3.0,1.11,2.605,22,19,8.01,Competitor median ≈ 2.60 (±15% band).,Protein Bar
+P1005,2.06,2.16,1.32,1.935,187,16,6.86,High inventory → -3% price. Competitor median ≈ 1.94 (±15% band).,Blueberry Muffin
+P1016,8.78,7.88,5.57,8.625,31,53,5.16,Low inventory → +3% price. Competitor median ≈ 8.62 (±15% band).,Sparkling Water 330ml
+P1008,3.56,3.78,1.81,3.29,64,54,4.35,Competitor median ≈ 3.29 (±15% band).,Bagel w/ Cream Cheese
+P1009,13.18,12.81,5.76,11.489999999999998,194,22,1.93,High inventory → -3% price. Competitor median ≈ 11.49 (±15% band).,Cheesecake Slice
+P1003,2.17,1.92,1.32,2.08,66,28,1.84,High inventory → -3% price. Competitor median ≈ 2.08 (±15% band).,Mocha
+P1013,3.2,3.17,1.61,3.735,71,17,0.2,High inventory → -3% price. Competitor median ≈ 3.73 (±15% band).,Chocolate Bar
+P1002,1.31,1.15,0.52,1.2650000000000001,197,19,0.16,High inventory → -3% price. Competitor median ≈ 1.27 (±15% band).,Latte

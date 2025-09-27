@@ -1,0 +1,21 @@
+product_id,name,category,unit_cost,current_price,sku
+P1000,Espresso Shot,Coffee,2.42,3.81,SKU-0000
+P1001,Cappuccino,Coffee,2.68,5.06,SKU-0001
+P1002,Latte,Snacks,0.52,1.31,SKU-0002
+P1003,Mocha,Bakery,1.32,2.17,SKU-0003
+P1004,Cold Brew,Bakery,2.14,3.8,SKU-0004
+P1005,Blueberry Muffin,Bakery,1.32,2.06,SKU-0005
+P1006,Chocolate Croissant,Coffee,2.24,5.41,SKU-0006
+P1007,Banana Bread,Merch,4.12,10.18,SKU-0007
+P1008,Bagel w/ Cream Cheese,Coffee,1.81,3.56,SKU-0008
+P1009,Cheesecake Slice,Merch,5.76,13.18,SKU-0009
+P1010,Protein Bar,Beverages,1.11,2.84,SKU-0010
+P1011,Trail Mix,Coffee,1.62,3.52,SKU-0011
+P1012,Kettle Chips,Coffee,2.4,4.1,SKU-0012
+P1013,Chocolate Bar,Coffee,1.61,3.2,SKU-0013
+P1014,Granola Cup,Bakery,1.38,3.78,SKU-0014
+P1015,Spring Water 500ml,Bakery,1.53,3.82,SKU-0015
+P1016,Sparkling Water 330ml,Merch,5.57,8.78,SKU-0016
+P1017,Orange Juice,Merch,11.61,19.59,SKU-0017
+P1018,Iced Tea,Coffee,1.35,3.57,SKU-0018
+P1019,Reusable Cup,Merch,7.81,16.21,SKU-0019
