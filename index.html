@@ -350,10 +350,11 @@ async function computeFromSources(productsTxt, invTxt, salesTxt, compTxt){
     let   profitRec = (recPrice - cost) * Math.max(0, units);
     let   delta     = profitRec - profitNow;
 
-    // 5) Never output a worse price than current
-    if(!isFinite(delta) || delta <= 0){
-      recPrice = isFinite(cur) ? cur : recPrice;
-      profitRec = profitNow; delta = 0;
+    const profitThreshold = profitNow * -0.05;
+    if (!isFinite(delta) || delta < profitThreshold) {
+     recPrice = isFinite(cur) ? cur : recPrice;
+     profitRec = profitNow;
+     delta = 0;
     }
 
     return {
