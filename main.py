@@ -8,15 +8,15 @@ from .engine import run_recommendations
 from .ml import train_elasticity_models
 from .alerts import send_slack, send_email
 
-load_dotenv()  # load .env if present
+load_dotenv()  
 
 app = FastAPI(title="Smart Pricing Engine", version="0.1.0")
 
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],       # allow any origin (dev only)
-    allow_credentials=False,   # must be False when using "*"
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
