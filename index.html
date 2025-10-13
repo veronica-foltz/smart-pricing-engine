@@ -67,6 +67,58 @@
     .muted{color:var(--muted)}
     .pill{border:1px solid var(--border); border-radius:999px; padding:6px 10px}
     .hidden{display:none}
+    #chart { width: 100%; height: auto; max-height: 340px; }
+    @media (max-width: 720px){ #chart { max-height: 260px; } }
+    /* Cardify the table on small screens */
+    @media (max-width: 600px){
+      thead { display:none; }
+      table, tbody, tr, td { display:block; width:100%; }
+      tbody tr {
+        border:1px solid var(--border);
+        border-radius:12px;
+        padding:8px 10px;
+        margin-bottom:10px;
+        background:var(--card);
+      }
+      tbody tr:nth-child(odd){ background:var(--card); } /* disable striping in card mode */
+      tbody td {
+        border:0;
+        padding:8px 0;
+        display:flex;
+        justify-content:space-between;
+        gap:16px;
+      }
+      tbody td::before{
+        content: attr(data-label);
+        color: var(--muted);
+        font-size:12px;
+        text-transform:uppercase;
+        letter-spacing:.06em;
+      }
+    }
+    /* Bigger tap targets */
+    button, select, input[type="text"] { min-height:44px; }
+
+    /* Let controls and filters stack to full width on narrow screens */
+    @media (max-width: 720px){
+      body { padding:16px; }
+      .container { max-width: 100%; }
+      .header { align-items: stretch; }
+      .controls { width:100%; display:grid; grid-template-columns:1fr 1fr 48px; gap:8px; }
+      .controls button { width:100%; }
+      .filters { flex-direction:column; align-items:stretch; }
+      .filters input[type="text"], .filters select { min-width:0; width:100%; }
+      .chips { margin-left:0; flex-wrap:wrap; }
+    }
+
+    /* Accessibility: visible focus ring on dark & light */
+    :focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:10px; }
+    #slider { width:100%; }
+    @media (min-width: 721px){ #slider { width:320px; } }
+
+    /* Optional: bigger thumb size for mobile */
+    #slider::-webkit-slider-thumb { width:28px; height:28px; border-radius:50%; }
+    #slider::-moz-range-thumb { width:28px; height:28px; border-radius:50%; }
   </style>
 </head>
 <body data-theme="dark">
@@ -137,7 +189,7 @@
       <div class="chart-wrap">
         <div>
           <div class="muted" style="margin-bottom:6px;">Profit vs Price</div>
-          <svg id="chart" width="700" height="340"></svg>
+          <svg id="chart" viewBox="0 0 700 340" preserveAspectRatio="xMidYMid meet"></svg>
           <div style="display:flex; align-items:center; gap:12px; margin-top:10px;">
             <input id="slider" type="range" min="0" max="100" value="0" oninput="moveMarker(this.value)" />
             <span id="sliderLabel" class="pill">Select product</span>
@@ -164,7 +216,14 @@
        Fallback: price_recommendations.csv
        ====================================================== */
 
-    let fullData = null, filtered = [], currentSort = { key:'expected_profit_delta', dir:'desc' }, currentCurve=null;
+    function svgSize(svg){
+  const r = svg.getBoundingClientRect();
+  // Min size fallback if not yet laid out
+  return { W: Math.max(320, r.width || 700), H: Math.max(180, r.height || 340) };
+}
+function clearSvg(svg){ while(svg.firstChild) svg.removeChild(svg.firstChild); }
+    
+       let fullData = null, filtered = [], currentSort = { key:'expected_profit_delta', dir:'desc' }, currentCurve=null;
 
     /* ---------- THEME ---------- */
     function toggleTheme(){
@@ -464,7 +523,7 @@
       });
       sortData();
       const tbody=document.getElementById('tbody');
-      tbody.innerHTML=filtered.map(r=>{
+      tbody.innerHTML = filtered.map(r=>{
         const deltaClass = Number(r.expected_profit_delta)>=0 ? 'delta good' : 'delta bad';
         const inv=Number(r.inventory_on_hand), rp=Number(r.reorder_point);
         let invBadge='<span class="chip">OK</span>';
@@ -472,16 +531,16 @@
           if(inv<=rp) invBadge='<span class="chip" style="border-color:var(--bad);color:var(--bad)">Low</span>';
           else if(inv>2*rp) invBadge='<span class="chip" style="border-color:var(--good);color:var(--good)">High</span>';
         }
-        return `
-          <tr>
-            <td>${escapeHtml(r.name||'(No name)')}</td>
-            <td>${escapeHtml(r.product_id)}</td>
-            <td class="money">${money(r.current_price)}</td>
-            <td class="money"><b>${money(r.recommended_price)}</b></td>
-            <td class="${deltaClass}">${isFinite(r.expected_profit_delta)? Number(r.expected_profit_delta).toFixed(2) : '—'}</td>
-            <td>${invBadge}</td>
-            <td class="muted">${escapeHtml(r.notes||'')}</td>
-          </tr>
+      return `
+        <tr>
+          <td data-label="Product">${escapeHtml(r.name||'(No name)')}</td>
+          <td data-label="ID">${escapeHtml(r.product_id)}</td>
+          <td data-label="Current" class="money">${money(r.current_price)}</td>
+          <td data-label="Recommended" class="money"><b>${money(r.recommended_price)}</b></td>
+          <td data-label="Delta" class="${deltaClass}">${isFinite(r.expected_profit_delta)? Number(r.expected_profit_delta).toFixed(2) : '—'}</td>
+          <td data-label="Inventory">${invBadge}</td>
+          <td data-label="Notes" class="muted">${escapeHtml(r.notes||'')}</td>
+        </tr>
         `;
       }).join('');
       populateProductSelect(); // keep dropdown in sync with current filter
@@ -537,8 +596,9 @@
     }
     function drawEmptyChart(){ const svg=document.getElementById('chart'); while(svg && svg.firstChild) svg.removeChild(svg.firstChild); }
     function drawChart(curve){
-      const svg=document.getElementById('chart'); while(svg.firstChild) svg.removeChild(svg.firstChild);
-      const W=Number(svg.getAttribute('width')), H=Number(svg.getAttribute('height'));
+      const svg = document.getElementById('chart');
+      clearSvg(svg);
+      const { W, H } = svgSize(svg);
       const pad=38, ox=pad, oy=pad, iw=W-pad*2, ih=H-pad*2;
 
       const prices=curve.points.map(p=>p.price), profits=curve.points.map(p=>p.profit);
@@ -554,23 +614,32 @@
         l.setAttribute("stroke",st); l.setAttribute("stroke-width",w); if(ds) l.setAttribute("stroke-dasharray",ds);
         svg.appendChild(l);
       };
+
+      // axes
       mkLine(ox, oy+ih, ox+iw, oy+ih); mkLine(ox, oy, ox, oy+ih);
 
+      // curve
       let d=""; curve.points.forEach((pt,i)=>{ d += (i?" L ":"M ") + X(pt.price) + " " + Y(pt.profit); });
       const path=document.createElementNS("http://www.w3.org/2000/svg","path");
       path.setAttribute("d",d); path.setAttribute("fill","none");
       path.setAttribute("stroke", getComputedStyle(document.body).getPropertyValue('--accent').trim() || "#6aa5ff");
       path.setAttribute("stroke-width","2.5"); svg.appendChild(path);
 
+      // markers
       mkLine(X(curve.current_price), oy, X(curve.current_price), oy+ih, "#8b93a6", 1, "5,4");
       mkLine(X(curve.recommended_price), oy, X(curve.recommended_price), oy+ih, "#22c55e", 1.5, "5,4");
 
       const m=document.createElementNS("http://www.w3.org/2000/svg","line");
       m.setAttribute("id","sliderMarker"); m.setAttribute("y1",oy); m.setAttribute("y2",oy+ih);
       m.setAttribute("stroke","#ef4444"); m.setAttribute("stroke-width","2"); svg.appendChild(m);
+
+      // store scale for reuse
+      svg._scale = { X, Y, oy, ih };
       moveMarkerTo(curve.recommended_price, curve);
-      const lbl=document.getElementById('sliderLabel'); if(lbl) lbl.textContent=`${curve.name||curve.product_id}`;
-    }
+
+      const lbl=document.getElementById('sliderLabel');
+      if(lbl) lbl.textContent=`${curve.name||curve.product_id}`;
+     }
     function setupSlider(curve){
       const slider=document.getElementById('slider'); if(!slider) return;
       const prices=curve.points.map(p=>p.price); const minP=Math.min(...prices), maxP=Math.max(...prices);
@@ -578,12 +647,16 @@
       updateSliderLabel(curve.recommended_price, curve);
     }
     function moveMarker(val){ if(!currentCurve) return; const price=parseFloat(val); moveMarkerTo(price,currentCurve); updateSliderLabel(price,currentCurve); }
-    function moveMarkerTo(price,curve){
-      const svg=document.getElementById('chart'); const W=Number(svg.getAttribute('width')), H=Number(svg.getAttribute('height'));
-      const pad=38, ox=pad, oy=pad, iw=W-pad*2, ih=H-pad*2; const prices=curve.points.map(p=>p.price);
-      const minP=Math.min(...prices), maxP=Math.max(...prices); const X=v=> ox + ((v-minP)/(maxP-minP || 1))*iw;
-      const marker=document.getElementById('sliderMarker'); marker.setAttribute('x1',X(price)); marker.setAttribute('x2',X(price));
+    function moveMarkerTo(price, curve){
+      const svg=document.getElementById('chart');
+      const s = svg._scale; if(!s){ drawChart(curve); return; }
+      const marker=document.getElementById('sliderMarker');
+      const x = s.X(price);
+      marker.setAttribute('x1', x);
+      marker.setAttribute('x2', x);
     }
+    // Redraw on orientation/resize
+    window.addEventListener('resize', ()=>{ if(currentCurve) drawChart(currentCurve); });
     function updateSliderLabel(price,curve){
       const lbl=document.getElementById('sliderLabel'); if(!lbl) return;
       let nearest=curve.points[0]; curve.points.forEach(p=>{ if(Math.abs(p.price-price)<Math.abs(nearest.price-price)) nearest=p; });
