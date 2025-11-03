@@ -3,7 +3,7 @@ Smart Pricing Engine
 The Smart Pricing Engine is a full-stack demo that shows how machine learning and optimization can be used to make data-driven pricing decisions.
 It combines a FastAPI backend with an interactive web dashboard to recommend product prices that maximize profit while accounting for costs, demand elasticity, and inventory levels.
 
-  - ML-driven forecasts: Elasticity models estimate how changes in price affect unit sales.
+  - ML-driven forecasts: Elasticity models estimate how changes in price affect unit sales
 
 Tech Stack
 
